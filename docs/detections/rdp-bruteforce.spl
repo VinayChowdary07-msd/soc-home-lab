@@ -1,4 +1,0 @@
-index=main EventCode=4625
-| bin _time span=5m
-| stats count by Source_Network_Address, _time
-| where count > 5
