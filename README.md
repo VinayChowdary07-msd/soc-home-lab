@@ -7,9 +7,7 @@ This project demonstrates end-to-end security monitoring — from attack simulat
 ---
 
 ## Architecture
-
-```
-                    ┌─────────────────────────────────────────┐
+                                  ┌─────────────────────────────────────────┐
                     │        Isolated Lab Network (NAT)        │
                     │           192.168.130.0/24               │
                     │                                           │
@@ -27,8 +25,7 @@ This project demonstrates end-to-end security monitoring — from attack simulat
   └─────────────┘   │   └──────────────┘      └─────────────┘  │
                     └─────────────────────────────────────────┘
                               My Laptop (Host / Control)
-```
-
+                
 | Component | Role | IP Address | Key Tools |
 |---|---|---|---|
 | Ubuntu Server | SIEM — stores & indexes all forwarded logs | 192.168.130.134 | Splunk Enterprise 10.4.2 |
@@ -44,18 +41,24 @@ This project demonstrates end-to-end security monitoring — from attack simulat
 ### Attack Flow
 
 1. **Reconnaissance** — Kali scans the target for open RDP (port 3389)
-   ```bash
+```bash
    nmap -p 3389 192.168.130.135
-   ```
+```
 
 2. **Brute-force attack** — Hydra attempts multiple username/password combinations against RDP
-   ```bash
+```bash
    hydra -t 1 -W 3 -L users.txt -P passwords.txt rdp://192.168.130.135
-   ```
+```
+
+   ![Hydra RDP brute-force attack in progress](images/01-hydra-attack.png)
+   *Hydra launched against the Windows target using a small username/password wordlist.*
 
 3. **Windows logs the failures** — Each failed authentication attempt generates **Event ID 4625** (An account failed to log on) in the Windows Security event log, including the source IP, attempted username, and failure reason.
 
 4. **Telemetry is forwarded** — The Splunk Universal Forwarder on the Windows endpoint ships Security, System, Application, Sysmon, and PowerShell Operational logs to the Splunk indexer over port 9997.
+
+   ![Raw failed logon events in Splunk](images/02-raw-failed-logins.png)
+   *Raw EventCode 4625 events landing in Splunk after being forwarded from the Windows endpoint.*
 
 5. **Splunk correlates events** — A scheduled search runs every 5 minutes, grouping failed logon attempts by source IP within a rolling 5-minute window.
 
@@ -73,6 +76,9 @@ index=main EventCode=4625
 | stats count by Source_Network_Address, _time
 | where count > 5
 ```
+
+![Detection query results showing correlated failed-logon counts](images/03-detection-query.png)
+*The correlation search grouping failed logons into 5-minute windows and filtering for count > 5.*
 
 **Why this works:**
 - `EventCode=4625` isolates failed logon attempts specifically
@@ -96,6 +102,9 @@ During testing, Hydra executed 15 login attempts against the Windows 11 target i
 | 192.168.130.136 | 2026-08-23 08:35:00 | 15 |
 
 The alert fired as expected, confirming the detection pipeline works end-to-end — from raw attack, to endpoint telemetry, to SIEM correlation, to alert.
+
+![Triggered alerts list in Splunk](images/04-triggered-alerts.png)
+*The RDP Brute Force Detection alert firing repeatedly (22 total instances) at High severity, confirming the detection is stable and repeatable.*
 
 ---
 
@@ -124,24 +133,32 @@ These are documented here because they reflect genuine operational troubleshooti
 
 ---
 
-## Repository Structure
+## Full Incident Investigation Report
 
-```
-soc-home-lab/
-├── README.md                  ← this file
-├── docs/
-│   ├── architecture.md        ← detailed network/component breakdown
-│   ├── detection-writeup.md   ← full technique-to-detection walkthrough
-│   └── screenshots/           ← evidence: attack, logs, search, alert
-├── config/
-│   ├── inputs.conf            ← Universal Forwarder log source config
-│   └── sysmonconfig.xml       ← SwiftOnSecurity Sysmon config used
-└── detections/
-    └── rdp-bruteforce.spl     ← the saved SPL detection query
-```
+For a complete Tier-1 style investigation write-up covering Alert → Context → Evidence → Analysis → Severity → Decision → Documentation, see:
+[docs/RDP-Brute-Force-Incident-Report.md](docs/RDP-Brute-Force-Incident-Report.md)
 
 ---
 
+## Repository Structure
+
+---
+
+soc-home-lab/
+├── README.md                              ← this file
+├── images/                                ← evidence screenshots: attack, logs, search, alert
+│   ├── 01-hydra-attack.png
+│   ├── 02-raw-failed-logins.png
+│   ├── 03-detection-query.png
+│   └── 04-triggered-alerts.png
+├── docs/
+│   └── RDP-Brute-Force-Incident-Report.md ← full investigation report
+├── config/
+│   ├── inputs.conf                        ← Universal Forwarder log source config
+│   └── sysmonconfig.xml                   ← SwiftOnSecurity Sysmon config used
+└── detections/
+    └── rdp-bruteforce.spl                 ← the saved SPL detection query
+    
 ## Future Improvements
 
 - Expand detection to cover additional MITRE ATT&CK techniques (e.g., PowerShell abuse via T1059.001, using the existing Script Block Logging pipeline)
